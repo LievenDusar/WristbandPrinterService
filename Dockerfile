@@ -1,14 +1,21 @@
-FROM eclipse-temurin:21-jdk-alpine AS runtime
+FROM eclipse-temurin:21-jdk-alpine AS build
+WORKDIR /build
+COPY pom.xml .
+COPY src ./src
+RUN ./mvnw -q -B clean package -DskipTests 2>/dev/null || \
+    (apk add --no-cache maven && mvn -q -B clean package -DskipTests)
 
+FROM eclipse-temurin:21-jre-alpine AS runtime
 WORKDIR /app
 
-ARG JAR_FILE=target/wristband-printer-service-0.0.1-SNAPSHOT.jar
-COPY ${JAR_FILE} app.jar
-
-EXPOSE 8080
+# Required: prevents ImageIO / Graphics2D from hanging on a headless host
+ENV JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 
 ENV PRINTER_HOST=printer
 ENV PRINTER_PORT=9100
 
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+COPY --from=build /build/target/wristband-printer-service-*.jar app.jar
 
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

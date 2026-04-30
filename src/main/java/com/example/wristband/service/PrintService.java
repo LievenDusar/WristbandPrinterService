@@ -1,6 +1,9 @@
 package com.example.wristband.service;
 
 import com.example.wristband.api.PrintRequest;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -12,28 +15,30 @@ public class PrintService {
     private final ZebraPrinterClient zebraPrinterClient;
     private final LogoUploadService logoUploadService;
     private final Base64ToGrfConverter base64ToGrfConverter;
+    private final MeterRegistry meterRegistry;
 
     public void printWristband(PrintRequest request) {
-        PrintRequest resolved = resolveLogos(request);
-        String zpl = zplTemplateBuilder.buildWristbandZpl(resolved);
-        zebraPrinterClient.sendToPrinter(zpl);
+        Counter total = meterRegistry.counter("wristband.print.jobs.total");
+        Counter failed = meterRegistry.counter("wristband.print.jobs.failed");
+        Timer timer = meterRegistry.timer("wristband.print.duration");
+
+        total.increment();
+        try {
+            timer.record(() -> {
+                PrintRequest resolved = resolveLogos(request);
+                String zpl = zplTemplateBuilder.buildWristbandZpl(resolved);
+                zebraPrinterClient.sendToPrinter(zpl);
+            });
+        } catch (RuntimeException e) {
+            failed.increment();
+            throw e;
+        }
     }
 
-    /**
-     * Build ZPL without sending it to the printer.
-     * Handy for development / preview.
-     */
-    public String buildWristbandZpl(PrintRequest request) {
-        // For preview we do NOT talk to the printer. We only use
-        // already-known logo identifiers (eventLogoId / sponsorLogoId),
-        // and ignore any incoming base64 fields.
+    public String previewWristbandZpl(PrintRequest request) {
         return zplTemplateBuilder.buildWristbandZpl(request);
     }
 
-    /**
-     * Build ZPL including an inline ^DG definition for the sponsor/event logo,
-     * so that online ZPL renderers can also show the image without having a printer.
-     */
     public String buildWristbandZplWithInlineLogo(PrintRequest request) {
         String mainZpl = zplTemplateBuilder.buildWristbandZpl(request);
 
@@ -52,8 +57,6 @@ public class PrintService {
         }
 
         String dg = base64ToGrfConverter.toGrf(base64, imageName);
-
-        // Plak de ^DG-definitie vóór de hoofd-ZPL, zodat ^XGIMAGE.GRF in de template werkt.
         return dg + "\n" + mainZpl;
     }
 
@@ -81,4 +84,3 @@ public class PrintService {
                 .build();
     }
 }
-

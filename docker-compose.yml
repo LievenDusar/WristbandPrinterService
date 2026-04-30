@@ -1,0 +1,23 @@
+services:
+  wristband-service:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PRINTER_HOST: zebra-mock
+      PRINTER_PORT: 9100
+      JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
+    depends_on:
+      - zebra-mock
+    restart: unless-stopped
+
+  # Minimal TCP echo server that accepts connections on port 9100.
+  # Swap for a real printer IP/hostname in production by removing this service
+  # and pointing PRINTER_HOST at the actual printer.
+  zebra-mock:
+    image: alpine:3.19
+    command: >
+      sh -c "apk add --no-cache ncat &&
+             while true; do ncat -l -p 9100 -e /bin/cat; done"
+    ports:
+      - "9100:9100"
